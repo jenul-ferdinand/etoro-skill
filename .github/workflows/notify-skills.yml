@@ -1,0 +1,15 @@
+name: Notify skills marketplace
+
+# Tells jenul-ferdinand/skills to point its submodule at this commit.
+# SKILLS_DISPATCH_TOKEN: fine-grained token, skills repo only, Contents write.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api repos/jenul-ferdinand/skills/dispatches -f event_type=skill-updated
+        env:
+          GH_TOKEN: ${{ secrets.SKILLS_DISPATCH_TOKEN }}
