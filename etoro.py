@@ -15,7 +15,6 @@ import os
 import sys
 import uuid
 from datetime import UTC, datetime
-from functools import cache
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -24,7 +23,6 @@ HERE = Path(__file__).resolve().parent
 BASE = "https://public-api.etoro.com/api/v1"
 
 
-@cache
 def keys() -> dict[str, str]:
     env = dict(os.environ)
     dotenv = HERE / ".env"
@@ -148,10 +146,6 @@ def group(ps: list[dict], key) -> list[dict]:
     return sorted(out, key=lambda r: -r["value"])
 
 
-def money(x: float, sign: bool = False) -> str:
-    return f"{x:+,.2f}" if sign else f"{x:,.2f}"
-
-
 def pct(a: float, b: float) -> str:
     return f"{a / b:+.1%}" if b else "-"
 
@@ -176,9 +170,9 @@ def table(rows: list[dict], equity: float) -> str:
                 f"{r['units']:.4f}",
                 f"{avg:,.2f}" if avg else "-",
                 f"{price:,.2f}" if price else "-",
-                money(r["invested"]),
-                money(r["value"]),
-                money(r["pnl"], sign=True),
+                f"{r['invested']:,.2f}",
+                f"{r['value']:,.2f}",
+                f"{r['pnl']:+,.2f}",
             )
             + f"{pct(r['pnl'], r['invested']):>8}"
             + f"{r['value'] / equity:>8.1%}"
@@ -195,9 +189,9 @@ def report(cp: dict, by_lot: bool) -> str:
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"eToro account (USD), {now}\n"
-        f"equity {money(t['equity'])} | cash {money(t['cash'])}"
-        f" | invested {money(t['invested'])}"
-        f" | unrealized P/L {money(t['pnl'], sign=True)}"
+        f"equity {t['equity']:,.2f} | cash {t['cash']:,.2f}"
+        f" | invested {t['invested']:,.2f}"
+        f" | unrealized P/L {t['pnl']:+,.2f}"
         f" ({pct(t['pnl'], t['invested'])})"
         f" | {len(positions(cp))} positions, {len(cp['mirrors'])} copied traders"
         f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n\n"
