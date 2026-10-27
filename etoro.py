@@ -22,7 +22,6 @@ from urllib.request import Request, urlopen
 
 HERE = Path(__file__).resolve().parent
 BASE = "https://public-api.etoro.com/api/v1"
-CACHE = HERE / "instruments.json"  # id -> [ticker, name], gitignored
 
 
 @cache
@@ -61,25 +60,18 @@ def get(path: str):
 
 
 def tickers(ids) -> dict[int, tuple[str, str]]:
-    """id -> (ticker, name), fetching the ones not in the local cache."""
-    try:
-        raw = json.loads(CACHE.read_text())
-        names = {int(k): tuple(v) for k, v in raw.items()}
-    except (OSError, ValueError):
-        names = {}
-    missing = sorted({int(i) for i in ids} - names.keys())
-    if missing:
-        # eToro rejects %2C-encoded commas, so the query is built by hand.
-        # ponytail: one request, batch by 100 if a portfolio outgrows that
-        q = ",".join(map(str, missing))
-        data = get(f"/market-data/instruments?instrumentIds={q}")
-        for d in data["instrumentDisplayDatas"]:
-            names[d["instrumentID"]] = (
-                d["symbolFull"],
-                d["instrumentDisplayName"],
-            )
-        CACHE.write_text(json.dumps(names, indent=1, sort_keys=True) + "\n")
-    return names
+    """id -> (ticker, name) for these instrument IDs."""
+    ids = sorted({int(i) for i in ids})
+    if not ids:
+        return {}
+    # eToro rejects %2C-encoded commas, so the query is built by hand.
+    # One request, batch by 100 if a portfolio outgrows that
+    q = ",".join(map(str, ids))
+    data = get(f"/market-data/instruments?instrumentIds={q}")
+    return {
+        d["instrumentID"]: (d["symbolFull"], d["instrumentDisplayName"])
+        for d in data["instrumentDisplayDatas"]
+    }
 
 
 def positions(cp: dict) -> list[dict]:

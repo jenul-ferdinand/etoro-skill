@@ -20,7 +20,7 @@ Answer the question using the numbers: position size, concentration, cost basis,
 
 ## Market data
 
-`etoro.py get PATH` prints any GET under `https://public-api.etoro.com/api/v1` as JSON. `etoro.py ids ID...` turns instrument IDs (as in trade history) into tickers, cached in `instruments.json`.
+`etoro.py get PATH` prints any GET under `https://public-api.etoro.com/api/v1` as JSON. `etoro.py ids ID...` turns instrument IDs (as in trade history) into tickers.
 
 | Need | PATH |
 |---|---|
