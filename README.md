@@ -14,7 +14,7 @@ It's an [Agent Skill](https://agentskills.io), so it works with Claude Code, Cod
    ```
    Or, in Claude Code, as a plugin:
    ```
-   /plugin install etoro-skill --marketplace jenul-ferdinand/agent-skills
+   /plugin install etoro-skill --marketplace jenul-ferdinand/skills
    ```
 
 ## Usage
