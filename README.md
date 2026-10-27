@@ -1,6 +1,4 @@
-<p align="center">
-  <img alt="eToro Agent Skill" src=".github/banner.png" />
-</p>
+![eToro Agent Skill](.github/banner.png)
 
 Ask your AI agent about your investments and it reads your live [eToro](https://www.etoro.com) account first: cash, equity, every holding by ticker with cost basis and P/L, plus prices and trade history.
 
@@ -13,6 +11,10 @@ It's an [Agent Skill](https://agentskills.io), so it works with Claude Code, Cod
 3. Install the skill:
    ```sh
    npx skills add jenul-ferdinand/etoro-skill -g
+   ```
+   Or, in Claude Code, as a plugin:
+   ```
+   /plugin install etoro-skill --marketplace jenul-ferdinand/skills
    ```
 
 ## Usage

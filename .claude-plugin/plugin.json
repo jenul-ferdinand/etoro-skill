@@ -1,0 +1,13 @@
+{
+  "name": "etoro-skill",
+  "displayName": "eToro Portfolio (unofficial)",
+  "description": "Reads your live eToro account (cash, equity, holdings by ticker, cost basis, P/L) and eToro market data before Claude answers questions about your investments. Read-only: it can't trade.",
+  "author": {
+    "name": "Jenul Ferdinand",
+    "url": "https://github.com/jenul-ferdinand"
+  },
+  "homepage": "https://github.com/jenul-ferdinand/etoro-skill",
+  "repository": "https://github.com/jenul-ferdinand/etoro-skill",
+  "license": "MIT",
+  "keywords": ["etoro", "investing", "stocks", "portfolio", "personal-finance"]
+}
