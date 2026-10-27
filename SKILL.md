@@ -38,4 +38,4 @@ The full docs index is `https://api-portal.etoro.com/_llms/core-api.txt`. Read i
 
 ## Errors
 
-HTTP 401 or 403 means the keys in `.env` (next to the script) are wrong or expired. Ask the user to generate new ones in eToro and update `ETORO_API_KEY` and `ETORO_USER_KEY`.
+HTTP 401 or 403 means the keys in `~/.config/etoro-skill/.env` are wrong or expired. Ask the user to generate new ones in eToro and update `ETORO_API_KEY` and `ETORO_USER_KEY`.

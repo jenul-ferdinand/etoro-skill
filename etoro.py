@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Read-only eToro account and market data, with instrument IDs resolved to
-tickers. Keys come from $ETORO_API_KEY and $ETORO_USER_KEY, or a .env file
-next to this script. Amounts are USD.
+tickers. Keys come from $ETORO_API_KEY and $ETORO_USER_KEY, or from
+~/.config/etoro-skill/.env, which survives skill and plugin updates. Amounts
+are USD.
 
   etoro.py               balance, equity and holdings grouped by ticker
   etoro.py positions     every open position (lot) on its own row
@@ -19,13 +20,12 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-HERE = Path(__file__).resolve().parent
 BASE = "https://public-api.etoro.com/api/v1"
 
 
 def keys() -> dict[str, str]:
     env = dict(os.environ)
-    dotenv = HERE / ".env"
+    dotenv = Path.home() / ".config" / "etoro-skill" / ".env"
     if dotenv.exists():
         for line in dotenv.read_text().splitlines():
             k, sep, v = line.partition("=")
