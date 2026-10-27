@@ -1,7 +1,5 @@
 name: Notify skills marketplace
 
-# Tells jenul-ferdinand/skills to point its submodule at this commit.
-# SKILLS_DISPATCH_TOKEN: fine-grained token, skills repo only, Contents write.
 on:
   push:
     branches: [main]
