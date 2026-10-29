@@ -6,7 +6,7 @@ are USD.
 
   etoro.py               balance, equity and holdings grouped by ticker
   etoro.py positions     every open position (lot) on its own row
-  etoro.py ids ID...     tickers and names for instrument IDs
+  etoro.py ids ID...     tickers, names and sectors for instrument IDs
   etoro.py get PATH      raw GET of an /api/v1 PATH, printed as JSON
   etoro.py --test        self-check
 """
@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from math import isclose
 from pathlib import Path
@@ -58,19 +59,35 @@ def get(path: str):
         sys.exit(f"etoro.py: GET {path} failed: {e.reason}")
 
 
-def tickers(ids) -> dict[int, tuple[str, str]]:
-    """id -> (ticker, name) for these instrument IDs."""
+def tickers(ids) -> dict[int, tuple[str, str, str]]:
+    """id -> (ticker, name, sector) for these instrument IDs. The sector is
+    the industry for stocks and the asset type (ETF, Crypto...) otherwise."""
     ids = sorted({int(i) for i in ids})
     if not ids:
         return {}
+    types = {
+        t["instrumentTypeID"]: t["instrumentTypeDescription"]
+        for t in get("/market-data/instrument-types")["instrumentTypes"]
+    }
+    industries = {
+        i["industryID"]: i["industryName"]
+        for i in get("/market-data/stocks-industries")["stocksIndustries"]
+    }
     # eToro rejects %2C-encoded commas, so the query is built by hand.
     # One request, batch by 100 if a portfolio outgrows that
     q = ",".join(map(str, ids))
     data = get(f"/market-data/instruments?instrumentIds={q}")
-    return {
-        d["instrumentID"]: (d["symbolFull"], d["instrumentDisplayName"])
-        for d in data["instrumentDisplayDatas"]
-    }
+    out = {}
+    for d in data["instrumentDisplayDatas"]:
+        sector = types.get(d["instrumentTypeID"], "?")
+        if sector == "Stocks":
+            sector = industries.get(d.get("stocksIndustryID"), sector)
+        out[d["instrumentID"]] = (
+            d["symbolFull"],
+            d["instrumentDisplayName"],
+            sector,
+        )
+    return out
 
 
 def positions(cp: dict) -> list[dict]:
@@ -132,7 +149,7 @@ def table(rows: list[dict], equity: float, names: dict) -> str:
     tail = f"{'P/L%':>8}{'net':>11}{'24h':>10}{'weight':>8}"
     lines = [head.format(*cols.split()) + tail]
     for r in rows:
-        ticker, name = names.get(r["id"], (str(r["id"]), "?"))
+        ticker, name, _ = names.get(r["id"], (str(r["id"]), "?", "?"))
         flags = (" short" if r["short"] else "") + (
             f" x{r['lev']}" if r["lev"] != 1 else ""
         )
@@ -181,6 +198,10 @@ def report(cp: dict, agg: dict, names: dict, by_lot: bool) -> str:
     div = sum(r["div"] for r in rows)
     fees = sum(r["fees"] for r in rows)
     net = pnl + div - fees
+    w = Counter(cash=cash)
+    for r in rows:
+        w[names.get(r["id"], ("", "", "?"))[2]] += r["value"]
+    shares = (f"{k} {v / equity:.1%}" for k, v in w.most_common())
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"eToro account (USD), {now}\n"
@@ -191,7 +212,8 @@ def report(cp: dict, agg: dict, names: dict, by_lot: bool) -> str:
         f"dividends/overnight {div:+,.2f} | fees/taxes {-fees:+,.2f}"
         f" | net P/L {net:+,.2f} ({pct(net, invested)})"
         f" | {len(positions(cp))} positions, {len(cp['mirrors'])} copied traders"
-        f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n\n"
+        f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n"
+        f"weights: {' | '.join(shares) if equity else '-'}\n\n"
         + table(rows, equity, names)
     )
 
@@ -246,7 +268,35 @@ def test() -> None:
             for i, g in ((7, 3.0), (9, 0.5))
         ],
     }
-    names = {7: ("AAA", "Alpha"), 9: ("BBB", "Beta")}
+    global get
+    get = {  # canned responses; 9 is an ETF that still has an industry ID
+        "/market-data/instrument-types": {
+            "instrumentTypes": [
+                {"instrumentTypeID": i, "instrumentTypeDescription": n}
+                for i, n in ((5, "Stocks"), (6, "ETF"))
+            ]
+        },
+        "/market-data/stocks-industries": {
+            "stocksIndustries": [{"industryID": 8, "industryName": "Tech"}]
+        },
+        "/market-data/instruments?instrumentIds=7,9": {
+            "instrumentDisplayDatas": [
+                {
+                    "instrumentID": i,
+                    "symbolFull": s,
+                    "instrumentDisplayName": n,
+                    "instrumentTypeID": t,
+                    "stocksIndustryID": 8,
+                }
+                for i, s, n, t in (
+                    (7, "AAA", "Alpha", 5),
+                    (9, "BBB", "Beta", 6),
+                )
+            ]
+        },
+    }.__getitem__
+    names = tickers([9, 7, 7])
+    assert names == {7: ("AAA", "Alpha", "Tech"), 9: ("BBB", "Beta", "ETF")}
 
     def cells(by_lot):
         out = report(cp, agg, names, by_lot).splitlines()
@@ -257,6 +307,7 @@ def test() -> None:
     assert out[1].endswith("| 24h +3.50 (+1.8%)")
     assert out[2].startswith("dividends/overnight +2.00 | fees/taxes -10.00")
     assert "| net P/L -2.00 (-1.3%) |" in out[2]
+    assert out[3] == "weights: Tech 60.0% | cash 22.0% | ETF 18.0%"
     # instrument 9 is partly copied, so eToro's own-units 24h doesn't fit it
     assert (aaa[11], aaa[12], bbb[12]) == ("-4.00", "+3.00", "-")
     _, lots = cells(True)
