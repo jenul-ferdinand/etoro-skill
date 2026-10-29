@@ -129,6 +129,8 @@ def group(ps: list[dict], key) -> list[dict]:
                 "cost": 0.0,
                 "invested": 0.0,
                 "pnl": 0.0,
+                "div": 0.0,
+                "fees": 0.0,
                 "price": None,
             },
         )
@@ -137,11 +139,16 @@ def group(ps: list[dict], key) -> list[dict]:
         r["cost"] += p["units"] * p["openRate"]
         r["invested"] += p["amount"]
         r["pnl"] += upnl(p).get("pnL", 0)
+        # totalFees is overnight fees minus dividends, so credits are negative
+        r["div"] -= p.get("totalFees", 0)
+        r["fees"] += p.get("totalExternalFees", 0)
+        r["fees"] += p.get("totalExternalTaxes", 0)
         r["price"] = upnl(p).get("closeRate", r["price"])
         r["since"] = min(r["since"], p["openDateTime"])
     out = list(rows.values())
     for r in out:
         r["value"] = r["invested"] + r["pnl"]
+        r["net"] = r["pnl"] + r["div"] - r["fees"]
         r["avg"] = r["cost"] / r["units"] if r["units"] else None
     return sorted(out, key=lambda r: -r["value"])
 
@@ -154,7 +161,9 @@ def table(rows: list[dict], equity: float) -> str:
     names = tickers(r["id"] for r in rows)
     cols = "ticker name lots since units avg-open price invested value P/L"
     head = "{:<16}{:<26}{:>5} {:<11}{:>12}{:>11}{:>11}{:>12}{:>12}{:>11}"
-    lines = [head.format(*cols.split()) + f"{'P/L%':>8}{'weight':>8}"]
+    lines = [
+        head.format(*cols.split()) + f"{'P/L%':>8}{'net':>11}{'weight':>8}"
+    ]
     for r in rows:
         ticker, name = names.get(r["id"], (str(r["id"]), "?"))
         flags = (" short" if r["short"] else "") + (
@@ -175,6 +184,7 @@ def table(rows: list[dict], equity: float) -> str:
                 f"{r['pnl']:+,.2f}",
             )
             + f"{pct(r['pnl'], r['invested']):>8}"
+            + f"{r['net']:>+11,.2f}"
             + f"{r['value'] / equity:>8.1%}"
         )
     return "\n".join(lines)
@@ -186,16 +196,22 @@ def report(cp: dict, by_lot: bool) -> str:
         key = lambda p: p["positionID"]  # noqa: E731
     else:
         key = lambda p: (p["instrumentID"], p["isBuy"], p["leverage"])  # noqa: E731
+    rows = group(positions(cp), key)
+    div = sum(r["div"] for r in rows)
+    fees = sum(r["fees"] for r in rows)
+    net = t["pnl"] + div - fees
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"eToro account (USD), {now}\n"
         f"equity {t['equity']:,.2f} | cash {t['cash']:,.2f}"
         f" | invested {t['invested']:,.2f}"
         f" | unrealized P/L {t['pnl']:+,.2f}"
-        f" ({pct(t['pnl'], t['invested'])})"
+        f" ({pct(t['pnl'], t['invested'])})\n"
+        f"dividends/overnight {div:+,.2f} | fees/taxes {-fees:+,.2f}"
+        f" | net P/L {net:+,.2f} ({pct(net, t['invested'])})"
         f" | {len(positions(cp))} positions, {len(cp['mirrors'])} copied traders"
         f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n\n"
-        + table(group(positions(cp), key), t["equity"])
+        + table(rows, t["equity"])
     )
 
 
@@ -211,6 +227,9 @@ def test() -> None:
             "amount": amount,
             "openDateTime": f"2026-01-0{pid}T00:00:00Z",
             "unrealizedPnL": {"pnL": pnl, "closeRate": close},
+            "totalFees": -0.5,
+            "totalExternalFees": 2.0,
+            "totalExternalTaxes": 0.5,
         }
 
     cp = {
@@ -242,6 +261,7 @@ def test() -> None:
     amd = next(r for r in rows if r["id"] == 7)
     assert (amd["lots"], amd["units"], amd["avg"]) == (2, 2.0, 60.0)
     assert (amd["value"], amd["since"]) == (120.0, "2026-01-01T00:00:00Z")
+    assert (amd["div"], amd["fees"], amd["net"]) == (1.0, 5.0, -4.0)
     assert [r["id"] for r in rows] == [7, 9]
     lots = group(positions(cp), lambda p: p["positionID"])
     assert len(lots) == 4 and sum(r["value"] for r in lots) == 156.0
