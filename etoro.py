@@ -2,9 +2,9 @@
 """Read-only eToro account and market data, with instrument IDs resolved to
 tickers. Keys come from $ETORO_API_KEY and $ETORO_USER_KEY, or from
 ~/.config/etoro-skill/.env, which survives skill and plugin updates. Amounts
-are USD.
+are USD; prices are in each instrument's own currency.
 
-  etoro.py               balance, equity and holdings grouped by ticker
+  etoro.py               balance, 24h move, weights and holdings by ticker
   etoro.py positions     every open position (lot) on its own row
   etoro.py ids ID...     tickers, names and sectors for instrument IDs
   etoro.py get PATH      raw GET of an /api/v1 PATH, printed as JSON
