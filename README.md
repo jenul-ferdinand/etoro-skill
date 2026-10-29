@@ -6,7 +6,7 @@ It's an [Agent Skill](https://agentskills.io), so it works with Claude Code, Cod
 
 ## Setup
 
-1. Generate a public API key and a user key in eToro (your account must be verified). See the [API portal](https://api-portal.etoro.com).
+1. Generate a public API key and a user key in eToro (your account must be verified). See the [API portal](https://api-portal.etoro.com/core/getting-started/authentication). Pick the Real environment and Read permission for the user key. `etoro.py` only sends GETs, but an agent with a shell could use the key directly, and a Read key makes eToro itself refuse trades.
 2. Copy `.env.example` to `~/.config/etoro-skill/.env` and fill in the keys, or export `ETORO_API_KEY` and `ETORO_USER_KEY`. Keeping them outside the skill folder means updates don't wipe them.
 3. Install the skill:
    ```sh
