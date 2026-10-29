@@ -262,7 +262,7 @@ def main() -> None:
             for i in ids:
                 print(i, *names.get(int(i), ("?", "not found")), sep="\t")
         case ["get", path] if path.startswith("/"):
-            print(json.dumps(get(path), indent=1))
+            print(json.dumps(get(path), separators=(",", ":")))
         case _:
             sys.exit(__doc__)
 

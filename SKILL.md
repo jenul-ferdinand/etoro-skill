@@ -29,12 +29,24 @@ Answer the question using the numbers: position size, concentration, cost basis,
 | Live bid/ask | `/market-data/instruments/rates?instrumentIds=1111,1002` (max 100 IDs) |
 | Price candles | `/market-data/instruments/1111/history/candles/desc/OneDay/30` (interval `OneMinute` to `FourHours`, `OneDay`, `OneWeek`; up to 1000) |
 | Closed trades | `/trading/info/trade/history?minDate=2026-01-01&pageSize=50` (each call looks back under a year) |
+| The user's monthly and yearly returns | `/user-info/people/USERNAME/gain`, with `username` from `/me` |
+| Watchlists | `/watchlists`, too big to print: in Python, read `watchlists[].name` and `watchlists[].items[].market.symbolName`, skipping items with no `market`, such as followed users |
 
-Search returns the stock first, then variants like `TSLA.24-7` and options. Use the plain ticker. The `*PriceChange` fields are percents (0.22 means 0.22%).
+Search returns the stock first, then variants like `TSLA.24-7` and options. Use the plain ticker. The `*PriceChange` fields are percents (0.22 means 0.22%), and so are `gain` values. Use `gain` for how the user did this year or month, or against the market: the report's P/L% only covers open positions since they were bought.
+
+Don't print anything spanning many candles, trades or watchlist items: 1000 daily candles alone are over 100 KB of JSON. Import etoro.py in a short script and print only the answer, so Python does the arithmetic:
+
+```sh
+python3 - <<'EOF'
+import sys; sys.path.insert(0, "<skill dir>"); import etoro
+c = etoro.get("/market-data/instruments/1111/history/candles/asc/OneDay/1000")["candles"][0]["candles"]
+print(sorted((b["close"] / a["close"] - 1, b["fromDate"][:10]) for a, b in zip(c, c[1:]))[:5])  # 5 worst days
+EOF
+```
 
 Rate limits: 60 requests a minute for account endpoints and 120 for market data. Batch IDs into one call where the endpoint allows it.
 
-The full docs index is `https://api-portal.etoro.com/_llms/core-api.txt`. Read it with a web fetch tool, since curl gets a Cloudflare challenge page.
+The full docs index is `https://api-portal.etoro.com/llms.txt`, and its doc pages are markdown. Read them with a web fetch tool, since curl gets a Cloudflare challenge page.
 
 ## Errors
 
