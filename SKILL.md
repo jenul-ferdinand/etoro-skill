@@ -5,7 +5,7 @@ description: Read the user's live eToro account (cash, equity, holdings by ticke
 
 # eToro
 
-`etoro.py` (in this skill's directory) reads the eToro public API. It only sends GET requests and cannot place, change or close trades. If the user wants a trade, they do it in eToro.
+`etoro.py` (in this skill's directory) reads the eToro public API. It only sends GET requests and cannot place, change or close trades. The keys should be read-only, so eToro refuses trades even outside the script. If the user wants a trade, they do it in eToro.
 
 ## Before answering
 
@@ -38,4 +38,4 @@ The full docs index is `https://api-portal.etoro.com/_llms/core-api.txt`. Read i
 
 ## Errors
 
-HTTP 401 or 403 means the keys in `~/.config/etoro-skill/.env` are wrong or expired. Ask the user to generate new ones in eToro and update `ETORO_API_KEY` and `ETORO_USER_KEY`.
+HTTP 401 or 403 means the keys in `~/.config/etoro-skill/.env` are wrong or expired. Ask the user to generate new ones in eToro with Read permission for the Real environment, and update `ETORO_API_KEY` and `ETORO_USER_KEY`. A 403 with `InsufficientPermissions` is different: the key works but doesn't cover that endpoint, so skip it and don't suggest a Write key. `etoro.py get /me` lists the key's `scopes`, and a read-only key has only `:read` ones.
