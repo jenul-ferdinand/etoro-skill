@@ -16,7 +16,7 @@ import os
 import sys
 import uuid
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from math import isclose
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -143,11 +143,22 @@ def pct(a: float, b: float) -> str:
     return f"{a / b:+.1%}" if b else "-"
 
 
-def table(rows: list[dict], equity: float, names: dict) -> str:
+def cgt_date(opened: str) -> str:
+    """First sale date that counts as held over 12 months (Australia's CGT
+    discount, US long-term): the day after the UTC open date, a year on."""
+    d = date.fromisoformat(opened[:10]) + timedelta(days=1)
+    try:
+        return d.replace(year=d.year + 1).isoformat()
+    except ValueError:  # Feb 29 with no leap day a year on
+        return date(d.year + 1, 3, 1).isoformat()
+
+
+def table(rows: list[dict], equity: float, names: dict, by_lot: bool) -> str:
     cols = "ticker name lots since units avg-open price invested value P/L"
     head = "{:<16}{:<26}{:>5} {:<11}{:>12}{:>11}{:>11}{:>12}{:>12}{:>11}"
     tail = f"{'P/L%':>8}{'net':>11}{'24h':>10}{'weight':>8}"
-    lines = [head.format(*cols.split()) + tail]
+    cgt = "  1y+ from" if by_lot else ""
+    lines = [head.format(*cols.split()) + tail + cgt]
     for r in rows:
         ticker, name, _ = names.get(r["id"], (str(r["id"]), "?", "?"))
         flags = (" short" if r["short"] else "") + (
@@ -172,6 +183,7 @@ def table(rows: list[dict], equity: float, names: dict) -> str:
             + f"{r['net']:>+11,.2f}"
             + f"{d24:>10}"
             + f"{r['value'] / equity:>8.1%}"
+            + (f"  {cgt_date(r['since'])}" if by_lot else "")
         )
     return "\n".join(lines)
 
@@ -214,7 +226,7 @@ def report(cp: dict, agg: dict, names: dict, by_lot: bool) -> str:
         f" | {len(positions(cp))} positions, {len(cp['mirrors'])} copied traders"
         f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n"
         f"weights: {' | '.join(shares) if equity else '-'}\n\n"
-        + table(rows, equity, names)
+        + table(rows, equity, names, by_lot)
     )
 
 
@@ -312,6 +324,15 @@ def test() -> None:
     assert (aaa[11], aaa[12], bbb[12]) == ("-4.00", "+3.00", "-")
     _, lots = cells(True)
     assert [c[12] for c in lots] == ["-", "-", "+0.50", "-"]
+    assert [c[14] for c in lots] == [f"2027-01-0{d}" for d in (2, 3, 4, 5)]
+    for opened, first in (
+        ("2026-03-05", "2027-03-06"),
+        ("2027-02-28", "2028-03-01"),
+        ("2028-02-28", "2029-03-01"),
+        ("2028-02-29", "2029-03-01"),
+        ("2026-12-31", "2028-01-01"),
+    ):
+        assert cgt_date(opened + "T20:00:00Z") == first, opened
     print("ok")
 
 
