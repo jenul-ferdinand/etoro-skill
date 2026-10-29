@@ -14,8 +14,9 @@ jobs:
         with:
           python-version: "3.11"
       - run: python etoro.py --test
-      - run: pipx run ruff check .
-      - run: pipx run ruff format --check .
+      - run: pip install ruff==0.15.20
+      - run: ruff check .
+      - run: ruff format --check .
 
   notify:
     needs: test
