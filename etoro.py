@@ -144,8 +144,8 @@ def pct(a: float, b: float) -> str:
 
 
 def cgt_date(opened: str) -> str:
-    """First sale date that counts as held over 12 months (Australia's CGT
-    discount, US long-term): the day after the UTC open date, a year on."""
+    """First sale date that counts as held over 12 months (Australian CGT,
+    US long-term): the day after the UTC open date, a year on."""
     d = date.fromisoformat(opened[:10]) + timedelta(days=1)
     try:
         return d.replace(year=d.year + 1).isoformat()
