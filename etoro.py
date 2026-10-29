@@ -15,7 +15,8 @@ import json
 import os
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from math import isclose
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -81,38 +82,6 @@ def upnl(p: dict) -> dict:
     return p.get("unrealizedPnL") or {}
 
 
-def totals(cp: dict) -> dict:
-    """Cash, invested, unrealized P/L and equity, summed the way eToro's
-    calculate-equity guide does it."""
-    own = [
-        o
-        for o in cp["ordersForOpen"]
-        if not (o.get("mirrorID") or o.get("mirrorId"))
-    ]
-    pending = sum(o["amount"] for o in own + cp["orders"])
-    mirrors = cp["mirrors"]
-    ps = positions(cp)
-    cash = cp["credit"] - pending
-    invested = (
-        sum(p["amount"] for p in ps)
-        + sum(
-            m["availableAmount"] - m["closedPositionsNetProfit"]
-            for m in mirrors
-        )
-        + pending
-        + sum(o.get("totalExternalCosts", 0) for o in own)
-    )
-    pnl = sum(upnl(p).get("pnL", 0) for p in ps) + sum(
-        m["closedPositionsNetProfit"] for m in mirrors
-    )
-    return {
-        "cash": cash,
-        "invested": invested,
-        "pnl": pnl,
-        "equity": cash + invested + pnl,
-    }
-
-
 def group(ps: list[dict], key) -> list[dict]:
     """Sum positions sharing key(p) into rows, largest value first."""
     rows: dict = {}
@@ -157,19 +126,18 @@ def pct(a: float, b: float) -> str:
     return f"{a / b:+.1%}" if b else "-"
 
 
-def table(rows: list[dict], equity: float) -> str:
-    names = tickers(r["id"] for r in rows)
+def table(rows: list[dict], equity: float, names: dict) -> str:
     cols = "ticker name lots since units avg-open price invested value P/L"
     head = "{:<16}{:<26}{:>5} {:<11}{:>12}{:>11}{:>11}{:>12}{:>12}{:>11}"
-    lines = [
-        head.format(*cols.split()) + f"{'P/L%':>8}{'net':>11}{'weight':>8}"
-    ]
+    tail = f"{'P/L%':>8}{'net':>11}{'24h':>10}{'weight':>8}"
+    lines = [head.format(*cols.split()) + tail]
     for r in rows:
         ticker, name = names.get(r["id"], (str(r["id"]), "?"))
         flags = (" short" if r["short"] else "") + (
             f" x{r['lev']}" if r["lev"] != 1 else ""
         )
         avg, price = r["avg"], r["price"]
+        d24 = f"{r['24h']:+,.2f}" if "24h" in r else "-"
         lines.append(
             head.format(
                 ticker + flags,
@@ -185,33 +153,46 @@ def table(rows: list[dict], equity: float) -> str:
             )
             + f"{pct(r['pnl'], r['invested']):>8}"
             + f"{r['net']:>+11,.2f}"
+            + f"{d24:>10}"
             + f"{r['value'] / equity:>8.1%}"
         )
     return "\n".join(lines)
 
 
-def report(cp: dict, by_lot: bool) -> str:
-    t = totals(cp)
+def report(cp: dict, agg: dict, names: dict, by_lot: bool) -> str:
+    """cp from /trading/info/real/pnl, agg from the aggregate portfolio."""
+    t = agg["accountTotals"]
+    equity, cash = t["accountTotalValue"], t["accountAvailableCash"]
+    invested, pnl = t["accountTotalUsedMargin"], t["accountCurrentPnl"]
     if by_lot:
         key = lambda p: p["positionID"]  # noqa: E731
     else:
         key = lambda p: (p["instrumentID"], p["isBuy"], p["leverage"])  # noqa: E731
     rows = group(positions(cp), key)
+    daily = {a["instrumentId"]: a for a in agg["instrumentAggregates"]}
+    for r in rows:
+        # ponytail: eToro's 24h is per instrument and leaves out copied
+        # positions, so only a row holding all of an instrument's own units
+        # gets it; split it by units if long/short or copy rows need one
+        a = daily.get(r["id"], {})
+        units = -r["units"] if r["short"] else r["units"]
+        if isclose(a.get("netUnits", 0), units):
+            r["24h"] = a["dailyGainAccountCurrency"]
     div = sum(r["div"] for r in rows)
     fees = sum(r["fees"] for r in rows)
-    net = t["pnl"] + div - fees
+    net = pnl + div - fees
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"eToro account (USD), {now}\n"
-        f"equity {t['equity']:,.2f} | cash {t['cash']:,.2f}"
-        f" | invested {t['invested']:,.2f}"
-        f" | unrealized P/L {t['pnl']:+,.2f}"
-        f" ({pct(t['pnl'], t['invested'])})\n"
+        f"equity {equity:,.2f} | cash {cash:,.2f} | invested {invested:,.2f}"
+        f" | unrealized P/L {pnl:+,.2f} ({pct(pnl, invested)})"
+        f" | 24h {t['dailyGainAccountCurrency']:+,.2f}"
+        f" ({t['dailyGainAccountCurrencyPercent']:+.1f}%)\n"
         f"dividends/overnight {div:+,.2f} | fees/taxes {-fees:+,.2f}"
-        f" | net P/L {net:+,.2f} ({pct(net, t['invested'])})"
+        f" | net P/L {net:+,.2f} ({pct(net, invested)})"
         f" | {len(positions(cp))} positions, {len(cp['mirrors'])} copied traders"
         f", {len(cp['orders']) + len(cp['ordersForOpen'])} pending orders\n\n"
-        + table(rows, t["equity"])
+        + table(rows, equity, names)
     )
 
 
@@ -233,30 +214,15 @@ def test() -> None:
         }
 
     cp = {
-        "credit": 100.0,
         "positions": [
             pos(1, 7, 1.0, 50.0, 50.0, 10.0, 60.0),
             pos(2, 7, 1.0, 70.0, 70.0, -10.0, 60.0),
             pos(3, 9, 2.0, 10.0, 20.0, 5.0, 12.5),
         ],
-        "mirrors": [
-            {
-                "availableAmount": 30.0,
-                "closedPositionsNetProfit": 5.0,
-                "positions": [pos(4, 9, 1.0, 10.0, 10.0, 1.0, 11.0)],
-            }
-        ],
-        "orders": [{"amount": 15.0}],
-        "ordersForOpen": [
-            {"amount": 25.0, "mirrorID": 0, "totalExternalCosts": 1.0},
-            {"amount": 99.0, "mirrorID": 3, "totalExternalCosts": 9.0},
-        ],
+        "mirrors": [{"positions": [pos(4, 9, 1.0, 10.0, 10.0, 1.0, 11.0)]}],
+        "orders": [{}],
+        "ordersForOpen": [{}, {}],
     }
-    t = totals(cp)
-    assert t["cash"] == 100 - 25 - 15
-    assert t["invested"] == 50 + 70 + 20 + 10 + (30 - 5) + 40 + 1
-    assert t["pnl"] == 10 - 10 + 5 + 1 + 5
-    assert t["equity"] == t["cash"] + t["invested"] + t["pnl"]
     rows = group(positions(cp), lambda p: p["instrumentID"])
     amd = next(r for r in rows if r["id"] == 7)
     assert (amd["lots"], amd["units"], amd["avg"]) == (2, 2.0, 60.0)
@@ -266,6 +232,35 @@ def test() -> None:
     lots = group(positions(cp), lambda p: p["positionID"])
     assert len(lots) == 4 and sum(r["value"] for r in lots) == 156.0
     assert pct(0, 0) == "-" and pct(1, 4) == "+25.0%"
+    agg = {
+        "accountTotals": {
+            "accountTotalValue": 200.0,
+            "accountAvailableCash": 44.0,
+            "accountTotalUsedMargin": 150.0,
+            "accountCurrentPnl": 6.0,
+            "dailyGainAccountCurrency": 3.5,
+            "dailyGainAccountCurrencyPercent": 1.78,
+        },
+        "instrumentAggregates": [
+            {"instrumentId": i, "netUnits": 2.0, "dailyGainAccountCurrency": g}
+            for i, g in ((7, 3.0), (9, 0.5))
+        ],
+    }
+    names = {7: ("AAA", "Alpha"), 9: ("BBB", "Beta")}
+
+    def cells(by_lot):
+        out = report(cp, agg, names, by_lot).splitlines()
+        return out, [c.split() for c in out if c[:3] in ("AAA", "BBB")]
+
+    out, (aaa, bbb) = cells(False)
+    assert out[1].startswith("equity 200.00 | cash 44.00 | invested 150.00")
+    assert out[1].endswith("| 24h +3.50 (+1.8%)")
+    assert out[2].startswith("dividends/overnight +2.00 | fees/taxes -10.00")
+    assert "| net P/L -2.00 (-1.3%) |" in out[2]
+    # instrument 9 is partly copied, so eToro's own-units 24h doesn't fit it
+    assert (aaa[11], aaa[12], bbb[12]) == ("-4.00", "+3.00", "-")
+    _, lots = cells(True)
+    assert [c[12] for c in lots] == ["-", "-", "+0.50", "-"]
     print("ok")
 
 
@@ -276,7 +271,15 @@ def main() -> None:
             test()
         case [] | ["positions"]:
             cp = get("/trading/info/real/pnl")["clientPortfolio"]
-            print(report(cp, by_lot=bool(args)))
+            # ponytail: a rolling 24h, not since the last close, which
+            # would need each market's calendar
+            cut = datetime.now(UTC) - timedelta(days=1)
+            agg = get(
+                "/trading/info/aggregate-portfolio?pnlLevel=DailyPnl"
+                f"&dailyCutoffUtc={cut:%Y-%m-%dT%H:%M:%SZ}"
+            )
+            names = tickers(p["instrumentID"] for p in positions(cp))
+            print(report(cp, agg, names, by_lot=bool(args)))
         case ["ids", *ids] if ids and all(i.isdigit() for i in ids):
             names = tickers(ids)
             for i in ids:
