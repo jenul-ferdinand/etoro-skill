@@ -3,9 +3,24 @@ name: Notify skills marketplace
 on:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python etoro.py --test
+      - run: pip install ruff==0.15.20
+      - run: ruff check .
+      - run: ruff format --check .
+
   notify:
+    needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - run: gh api repos/jenul-ferdinand/skills/dispatches -f event_type=skill-updated
