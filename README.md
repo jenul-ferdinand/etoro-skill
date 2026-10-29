@@ -1,6 +1,6 @@
 ![eToro Agent Skill](.github/banner.png)
 
-Ask your AI agent about your investments and it reads your live [eToro](https://www.etoro.com) account first: cash, equity, every holding by ticker with cost basis and P/L, plus prices and trade history.
+Ask your AI agent about your investments and it reads your live [eToro](https://www.etoro.com) account first: cash, equity, the 24h move, sector weights, and every holding by ticker with cost basis and P/L after fees and dividends, plus prices and trade history.
 
 It's an [Agent Skill](https://agentskills.io), so it works with Claude Code, Codex, and any other agent that loads skills. It's read-only: `etoro.py` only sends GET requests to the [eToro public API](https://api-portal.etoro.com) and can't trade.
 
