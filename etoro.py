@@ -18,14 +18,13 @@ import uuid
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from math import isclose
+from operator import itemgetter
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = "https://public-api.etoro.com/api/v1"
-# 2026-27 Budget: Australia's 50% CGT discount covers only gain accrued before
-# this date. Change it here if the date or the measure moves.
-CGT_CUT = "2027-07-01"
+CGT_CUT = "2027-07-01"  # AU 50% CGT discount stops for later gain
 
 
 def keys() -> dict[str, str]:
@@ -76,8 +75,6 @@ def tickers(ids) -> dict[int, tuple[str, str, str]]:
         i["industryID"]: i["industryName"]
         for i in get("/market-data/stocks-industries")["stocksIndustries"]
     }
-    # eToro rejects %2C-encoded commas, so the query is built by hand.
-    # One request, batch by 100 if a portfolio outgrows that
     q = ",".join(map(str, ids))
     data = get(f"/market-data/instruments?instrumentIds={q}")
     out = {}
@@ -128,7 +125,6 @@ def group(ps: list[dict], key) -> list[dict]:
         r["cost"] += p["units"] * p["openRate"]
         r["invested"] += p["amount"]
         r["pnl"] += upnl(p).get("pnL", 0)
-        # totalFees is overnight fees minus dividends, so credits are negative
         r["div"] -= p.get("totalFees", 0)
         r["fees"] += p.get("totalExternalFees", 0)
         r["fees"] += p.get("totalExternalTaxes", 0)
@@ -152,7 +148,7 @@ def cgt_date(opened: str) -> str:
     d = date.fromisoformat(opened[:10]) + timedelta(days=1)
     try:
         return d.replace(year=d.year + 1).isoformat()
-    except ValueError:  # Feb 29 with no leap day a year on
+    except ValueError:
         return date(d.year + 1, 3, 1).isoformat()
 
 
@@ -204,15 +200,12 @@ def report(cp: dict, agg: dict, names: dict, by_lot: bool) -> str:
     equity, cash = t["accountTotalValue"], t["accountAvailableCash"]
     invested, pnl = t["accountTotalUsedMargin"], t["accountCurrentPnl"]
     if by_lot:
-        key = lambda p: p["positionID"]  # noqa: E731
+        key = itemgetter("positionID")
     else:
-        key = lambda p: (p["instrumentID"], p["isBuy"], p["leverage"])  # noqa: E731
+        key = itemgetter("instrumentID", "isBuy", "leverage")
     rows = group(positions(cp), key)
     daily = {a["instrumentId"]: a for a in agg["instrumentAggregates"]}
     for r in rows:
-        # ponytail: eToro's 24h is per instrument and leaves out copied
-        # positions, so only a row holding all of an instrument's own units
-        # gets it; split it by units if long/short or copy rows need one
         a = daily.get(r["id"], {})
         units = -r["units"] if r["short"] else r["units"]
         if isclose(a.get("netUnits", 0), units):
@@ -291,7 +284,7 @@ def test() -> None:
         ],
     }
     global get
-    get = {  # canned responses; 9 is an ETF that still has an industry ID
+    get = {
         "/market-data/instrument-types": {
             "instrumentTypes": [
                 {"instrumentTypeID": i, "instrumentTypeDescription": n}
@@ -330,15 +323,14 @@ def test() -> None:
     assert out[2].startswith("dividends/overnight +2.00 | fees/taxes -10.00")
     assert "| net P/L -2.00 (-1.3%) |" in out[2]
     assert out[3] == "weights: Tech 60.0% | cash 22.0% | ETF 18.0%"
-    # instrument 9 is partly copied, so eToro's own-units 24h doesn't fit it
     assert (aaa[11], aaa[12], bbb[12]) == ("-4.00", "+3.00", "-")
     _, lots = cells(True)
     assert [c[12] for c in lots] == ["-", "-", "+0.50", "-"]
     assert [c[14] for c in lots] == [f"2027-01-0{d}" for d in (2, 3, 4, 5)]
     global CGT_CUT
-    CGT_CUT = "9999-12-31"  # flags nothing, and today is before it
+    CGT_CUT = "9999-12-31"
     assert not cells(True)[0][-1].startswith("*")
-    CGT_CUT = "2027-01-04"  # the fixture lots reach 1y+ on 01-02 to 01-05
+    CGT_CUT = "2027-01-04"
     out, lots = cells(True)
     assert [c[14][10:] for c in lots] == ["", "", "*", "*"]
     assert out[-1].startswith("* 1y+ date on or after 2027-01-04:")
@@ -360,8 +352,6 @@ def main() -> None:
             test()
         case [] | ["positions"]:
             cp = get("/trading/info/real/pnl")["clientPortfolio"]
-            # ponytail: a rolling 24h, not since the last close, which
-            # would need each market's calendar
             cut = datetime.now(UTC) - timedelta(days=1)
             agg = get(
                 "/trading/info/aggregate-portfolio?pnlLevel=DailyPnl"
