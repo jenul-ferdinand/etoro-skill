@@ -23,6 +23,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE = "https://public-api.etoro.com/api/v1"
+# 2026-27 Budget: Australia's 50% CGT discount covers only gain accrued before
+# this date. Change it here if the date or the measure moves.
+CGT_CUT = "2027-07-01"
 
 
 def keys() -> dict[str, str]:
@@ -166,6 +169,7 @@ def table(rows: list[dict], equity: float, names: dict, by_lot: bool) -> str:
         )
         avg, price = r["avg"], r["price"]
         d24 = f"{r['24h']:+,.2f}" if "24h" in r else "-"
+        when = cgt_date(r["since"])
         lines.append(
             head.format(
                 ticker + flags,
@@ -183,7 +187,13 @@ def table(rows: list[dict], equity: float, names: dict, by_lot: bool) -> str:
             + f"{r['net']:>+11,.2f}"
             + f"{d24:>10}"
             + f"{r['value'] / equity:>8.1%}"
-            + (f"  {cgt_date(r['since'])}" if by_lot else "")
+            + (f"  {when}{'*' if when >= CGT_CUT else ''}" if by_lot else "")
+        )
+    today = datetime.now(UTC).date().isoformat()
+    if by_lot and (today >= CGT_CUT or any(x.endswith("*") for x in lines)):
+        lines.append(
+            f"* 1y+ date on or after {CGT_CUT}: Australia's 50% CGT discount"
+            " only covers gain accrued before that date"
         )
     return "\n".join(lines)
 
@@ -325,6 +335,13 @@ def test() -> None:
     _, lots = cells(True)
     assert [c[12] for c in lots] == ["-", "-", "+0.50", "-"]
     assert [c[14] for c in lots] == [f"2027-01-0{d}" for d in (2, 3, 4, 5)]
+    global CGT_CUT
+    CGT_CUT = "9999-12-31"  # flags nothing, and today is before it
+    assert not cells(True)[0][-1].startswith("*")
+    CGT_CUT = "2027-01-04"  # the fixture lots reach 1y+ on 01-02 to 01-05
+    out, lots = cells(True)
+    assert [c[14][10:] for c in lots] == ["", "", "*", "*"]
+    assert out[-1].startswith("* 1y+ date on or after 2027-01-04:")
     for opened, first in (
         ("2026-03-05", "2027-03-06"),
         ("2027-02-28", "2028-03-01"),
